@@ -152,10 +152,7 @@ struct Thread {
         }
 
         // Iterate moves
-        u16 quiet_list[MAX_MOVE];
-        u16 noisy_list[MAX_MOVE];
-        int quiet_count = 0;
-        int noisy_count = 0;
+        int quiets = 0;
         int legals = 0;
 
         for (int i = 0; i < move_count; i++) {
@@ -169,7 +166,9 @@ struct Thread {
             swap(move_list[i], move_list[next_index]);
             swap(move_scores[i], move_scores[next_index]);
 
+            // Take move from move list
             u16 move = move_list[i];
+            move_list[i] = 0;
 
             // Check if quiet
             int is_quiet = board.quiet(move);
@@ -183,7 +182,7 @@ struct Thread {
                 continue;
 
             // Late move pruning
-            if (!is_pv && !board.checkers && quiet_count > depth * depth + 1)
+            if (!is_pv && !board.checkers && quiets > depth * depth + 1)
                 break;
 
             // Make
@@ -268,10 +267,12 @@ struct Thread {
                     update_history((*stack_conthist[ply + 1])[board.board[move_from(move)]][move_to(move)], bonus);
 
                     // Add pelnaty to visited quiet moves
-                    for (int k = 0; k < quiet_count; k++) {
-                        update_history(qhist[board.stm][quiet_list[k] & 4095], -bonus);
-                        update_history((*stack_conthist[ply])[board.board[move_from(quiet_list[k])]][move_to(quiet_list[k])], -bonus);
-                        update_history((*stack_conthist[ply + 1])[board.board[move_from(quiet_list[k])]][move_to(quiet_list[k])], -bonus);
+                    for (int k = 0; k < i; k++) {
+                        if (move_list[k] && board.quiet(move_list[k])) {
+                            update_history(qhist[board.stm][move_list[k] & 4095], -bonus);
+                            update_history((*stack_conthist[ply])[board.board[move_from(move_list[k])]][move_to(move_list[k])], -bonus);
+                            update_history((*stack_conthist[ply + 1])[board.board[move_from(move_list[k])]][move_to(move_list[k])], -bonus);
+                        }
                     }
                 }
                 else
@@ -279,17 +280,16 @@ struct Thread {
                     update_history(nhist[board.board[move_to(move)] / 2 % TYPE_NONE][board.board[move_from(move)]][move_to(move)], bonus);
 
                 // Add pelnaty to visited noisy moves
-                for (int k = 0; k < noisy_count; k++)
-                    update_history(nhist[board.board[move_to(noisy_list[k])] / 2 % TYPE_NONE][board.board[move_from(noisy_list[k])]][move_to(noisy_list[k])], -bonus);
+                for (int k = 0; k < i; k++)
+                    if (move_list[k] && !board.quiet(move_list[k]))
+                        update_history(nhist[board.board[move_to(move_list[k])] / 2 % TYPE_NONE][board.board[move_from(move_list[k])]][move_to(move_list[k])], -bonus);
 
                 break;
             }
 
-            // Push visited moves
-            if (is_quiet)
-                quiet_list[quiet_count++] = move;
-            else
-                noisy_list[noisy_count++] = move;
+            // Restore move to move list and update quiets count.
+            quiets += is_quiet;
+            move_list[i] = move;
         }
 
         // Return mate score
